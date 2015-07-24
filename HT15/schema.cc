@@ -708,15 +708,6 @@ print_sched(const Sched * s)
   fprintf(stderr, "\n");
 }
 
-/**
- * 1) Find game with least available players (and not full)
- * 2) Pick available players
- * 3) Sort players according to
- * - games played
- * - rank
- * 4) Pick player randomly, sorted hightest = most probable
- * 5) Add players=0 players
- */
 Sched*
 create_base_sched()
 {
@@ -950,6 +941,60 @@ create_base_sched2()
 
     Game * g = games[rand() % games.size()];
     remove_player_from_game(g, p);
+  }
+
+  compute_stats(s);
+
+#if 0
+  print_sched(s);
+  exit(0);
+#endif
+
+  return s;
+}
+
+/**
+ * 1) Find game with least available players (and not full)
+ * 2) Pick available players
+ * 3) Sort players according to
+ * - games played
+ * - rank
+ * 4) Pick player randomly, sorted hightest = most probable
+ * 5) Add players=0 players
+ */
+Sched*
+create_base_sched3()
+{
+  Sched * s = copy_sched(&empty_sched);
+
+  vector<Game*> & games = s->games;
+
+  int cnt_players = 0;
+  vector<Player*> players;
+  for (Player * p : ::players) {
+    players.push_back(p);
+    cnt_players += p->count_as;
+  }
+
+  size_t total = games.size() * players_per_game;
+  int games_per_player = total / cnt_players;
+
+  for (Player * p : players) {
+    while (s->stats.games_per_player[p->index] + p->lost_games < games_per_player) {
+      Game * g = get_game(s, p);
+      if (g == NULL)
+        break;
+      add_player_to_game(g, p);
+    }
+  }
+
+  for (Game * g : games) {
+    while (g->count_players < players_per_game) {
+      Player * p = get_player(s, players, g);
+      if (p == NULL)
+        break;
+      add_player_to_game(g, p);
+    }
   }
 
   compute_stats(s);

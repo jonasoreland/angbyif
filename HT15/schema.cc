@@ -125,7 +125,7 @@ struct Player
   int ledare;
   int index;
   int goalkeeper;
-  int count;
+  int count_as;
   int lost_games;
   vector<int> mask; // games that he can't play
   int rand_no;
@@ -322,10 +322,10 @@ read_players(const char * filename)
     p->name = strdup(name);
     p->ledare = ledare ? atoi(ledare) : 0;
     p->goalkeeper = g ? atoi(g) : 0;
-    p->count = c ? atoi(c) : 1;
+    p->count_as = c ? atoi(c) : 1;
     p->lost_games = lost_count ? atoi(lost_count) : 0;
     players.push_back(p);
-    player_count += p->count;
+    player_count += p->count_as;
 
     if (mask) {
       char *endptr;
@@ -445,7 +445,7 @@ add_player_to_game(Sched * s, Game * g, Player * p)
   g->score += p->score;
   g->ledare += !!p->ledare;
   g->goalkeeper += p->goalkeeper;
-  g->count_players += p->count;
+  g->count_players += p->count_as;
   g->players.push_back(p);
   if (test_bit(g->players_mask, p->index)) {
     printf("assert g->players_mask %s to %s\n", p->name, g->desc);
@@ -473,7 +473,7 @@ remove_player_from_game(Sched * s, Game * g, Player * p)
   g->score -= p->score;
   g->ledare -= !!p->ledare;
   g->goalkeeper -= p->goalkeeper;
-  g->count_players -= p->count;
+  g->count_players -= p->count_as;
   g->players.erase(find(g->players.begin(), g->players.end(), p));
   assert(test_bit(g->players_mask, p->index));
   assert(!test_bit(g->unavailable_mask, p->index));
@@ -726,7 +726,7 @@ create_base_sched()
   vector<Player*> players;
   for (Player * p : ::players) {
     players.push_back(p);
-    cnt_players += p->count;
+    cnt_players += p->count_as;
   }
 
   size_t total = games.size() * players_per_game;
@@ -1100,12 +1100,12 @@ perm0(Sched * s)
   Player * swap[MAX_PLAYER];
   for (size_t i = 0; i < MAX_PLAYER; i++) {
     if (test_bit(candidates, i))
-      if (players[i]->count <= p1->count)
+      if (players[i]->count_as <= p1->count_as)
         if (!test_bit(g1->unavailable_mask, players[i]->index))
           swap[cnt++] = players[i];
   }
 
-  int count = p1->count;
+  int count = p1->count_as;
 
   if (cnt < (unsigned)count) {
     s->stats.failed_swap[1]++;

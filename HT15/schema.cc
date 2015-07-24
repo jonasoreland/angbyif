@@ -46,6 +46,25 @@ clear_bit(mask_t & mask, int bit) {
 }
 
 static inline
+int
+count_bits(mask_t mask) {
+  int count = 0;
+  while (mask) {
+    if (mask & 1)
+      count++;
+    mask >>= 1;
+  }
+  return count;
+}
+
+static inline
+void
+or_mask(mask_t & mask, const mask_t & mask1)
+{
+  mask |= mask1;
+}
+
+static inline
 unsigned
 rand_bit(mask_t mask)
 {
@@ -117,6 +136,7 @@ vector<Player*> players;
 struct Game
 {
   int round;
+  struct Sched * sched;
   const char * time;
   const char * desc;
 
@@ -131,6 +151,8 @@ struct Game
   int get_score() const {
     return score / count_players;
   }
+
+  int count_available() const;
 };
 
 vector<Game*> file_games;
@@ -163,10 +185,22 @@ struct Sched
   Sched() {}
   ~Sched() {}
 
+  int count_players;
   vector<mask_t> players_mask_per_round;
+  vector<vector<Game*> > games_per_round;
   vector<Game*> games;
   Stats stats;
 };
+
+int
+Game::count_available() const
+{
+  mask_t mask = 0;
+  or_mask(mask, players_mask);
+  or_mask(mask, unavailable_mask);
+  or_mask(mask, sched->players_mask_per_round[round]);
+  return sched->count_players - count_bits(mask);
+}
 
 Sched empty_sched;
 
@@ -189,6 +223,12 @@ bool
 sort_by_name(const Player * p1, const Player * p2)
 {
   return strcmp(p1->name, p2->name) < 0;
+}
+
+bool
+sort_games_by_available(const Game *g1, const Game *g2)
+{
+  return g1->count_available() < g2->count_available();
 }
 
 void strip(char * d)
@@ -247,10 +287,10 @@ read_players(const char * filename)
       mask++;
     }
 
-    char * lost_mask = mask ? strchr(mask, ';') : 0;
-    if (lost_mask) {
-      *lost_mask = 0;
-      lost_mask++;
+    char * lost_count = mask ? strchr(mask, ';') : 0;
+    if (lost_count) {
+      *lost_count = 0;
+      lost_count++;
     }
 
     char * name = strchr(buf, ',');
@@ -283,7 +323,7 @@ read_players(const char * filename)
     p->ledare = ledare ? atoi(ledare) : 0;
     p->goalkeeper = g ? atoi(g) : 0;
     p->count = c ? atoi(c) : 1;
-    p->lost_games = 0;
+    p->lost_games = lost_count ? atoi(lost_count) : 0;
     players.push_back(p);
     player_count += p->count;
 
@@ -295,18 +335,6 @@ read_players(const char * filename)
           break;
         p->mask.push_back(val);
         mask = endptr;
-      } while (true);
-    }
-
-    if (lost_mask) {
-      char *endptr;
-      do {
-        long val = strtol(lost_mask, &endptr, 10);
-        if (endptr == lost_mask)
-          break;
-        p->lost_games++;
-        p->mask.push_back(val);
-        lost_mask = endptr;
       } while (true);
     }
   }
@@ -322,25 +350,6 @@ read_players(const char * filename)
 
     for (int m : p->mask) {
       set_bit(file_games[m]->unavailable_mask, p->index);
-    }
-
-    vector<Game*> lost_games;
-    for (int i = 0; i < p->lost_games; i++){
-      int game_no = p->mask.back();
-      p->mask.pop_back();
-      lost_games.push_back(file_games[game_no]);
-    }
-    p->lost_games = 0;
-
-    vector<Game*> copy = lost_games;
-    for (Game * g : copy) {
-      int round = g->round;
-      int cnt1 = games_in_round(file_games, round);
-      int cnt2 = games_in_round(lost_games, round);
-      if (cnt1 == cnt2) {
-        p->lost_games++;
-      }
-      remove_round(lost_games, round);
     }
   }
 }
@@ -366,6 +375,7 @@ read_games(const char * filename)
     d++;
 
     Game * g = new Game;
+    g->sched = NULL;
     g->round = atoi(buf);
     g->time = strdup(t);
     g->desc = strdup(d);
@@ -399,8 +409,11 @@ create_empty_sched()
   }
 
   for (Game * g : file_games) {
-    while (empty_sched.players_mask_per_round.size() <= (unsigned)g->round)
+    while (empty_sched.players_mask_per_round.size() <= (unsigned)g->round) {
       empty_sched.players_mask_per_round.push_back(0);
+      vector<Game*> tmp;
+      empty_sched.games_per_round.push_back(tmp);
+    }
   }
 
   for (size_t p = 0; p < players.size(); p++)
@@ -413,6 +426,7 @@ Game*
 copy_game(const Game * g)
 {
   Game * ng = new Game;
+  ng->sched = NULL;
   ng->ledare = 0;
   ng->score = 0;
   ng->desc = g->desc;
@@ -485,9 +499,13 @@ copy_sched(const Sched * s)
   }
   for (size_t n = 0; n < s->players_mask_per_round.size(); n++) {
     ns->players_mask_per_round.push_back(0);
+    vector<Game*> tmp;
+    ns->games_per_round.push_back(tmp);
   }
   for (Game * g : s->games) {
     Game * ng = copy_game(g);
+    ng->sched = ns;
+    ns->games_per_round[ng->round].push_back(ng);
     ns->games.push_back(ng);
 
     for (Player * p : g->players) {

@@ -440,8 +440,9 @@ copy_game(const Game * g)
 }
 
 void
-add_player_to_game(Sched * s, Game * g, Player * p)
+add_player_to_game(Game * g, Player * p)
 {
+  Sched * s = g->sched;
   g->score += p->score;
   g->ledare += !!p->ledare;
   g->goalkeeper += p->goalkeeper;
@@ -468,8 +469,9 @@ add_player_to_game(Sched * s, Game * g, Player * p)
 }
 
 void
-remove_player_from_game(Sched * s, Game * g, Player * p)
+remove_player_from_game(Game * g, Player * p)
 {
+  Sched * s = g->sched;
   g->score -= p->score;
   g->ledare -= !!p->ledare;
   g->goalkeeper -= p->goalkeeper;
@@ -509,7 +511,7 @@ copy_sched(const Sched * s)
     ns->games.push_back(ng);
 
     for (Player * p : g->players) {
-      add_player_to_game(ns, ng, p);
+      add_player_to_game(ng, p);
     }
   }
 
@@ -737,7 +739,7 @@ create_base_sched()
       Game * g = get_game(s, p);
       if (g == NULL)
         break;
-      add_player_to_game(s, g, p);
+      add_player_to_game(g, p);
     }
   }
 
@@ -746,7 +748,7 @@ create_base_sched()
       Player * p = get_player(s, players, g);
       if (p == NULL)
         break;
-      add_player_to_game(s, g, p);
+      add_player_to_game(g, p);
     }
   }
 
@@ -764,7 +766,7 @@ void move_player_to_game(Sched * s, Game * game, vector<Player*> & players,
                          int no)
 {
   Player * p = players[no];
-  add_player_to_game(s, game, p);
+  add_player_to_game(game, p);
   players.erase(players.begin() + no);
 }
 
@@ -830,7 +832,7 @@ void copy_players(Sched * s, Game * dst, const Game * src)
 {
   for (Player * p : src->players) {
     if (!test_bit(dst->unavailable_mask, p->index))
-      add_player_to_game(s, dst, p);
+      add_player_to_game(dst, p);
   }
 }
 
@@ -947,7 +949,7 @@ create_base_sched2()
       continue;
 
     Game * g = games[rand() % games.size()];
-    remove_player_from_game(s, g, p);
+    remove_player_from_game(g, p);
   }
 
   compute_stats(s);
@@ -1157,12 +1159,12 @@ perm0(Sched * s)
 	    p2[0]->name, g0->desc, p1->name, g1->desc);
 
   for (int i = 0; i < found; i++) {
-    remove_player_from_game(s, g0, p2[i]);
-    add_player_to_game(s, g1, p2[i]);
+    remove_player_from_game(g0, p2[i]);
+    add_player_to_game(g1, p2[i]);
   }
 
-  remove_player_from_game(s, g1, p1);
-  add_player_to_game(s, g0, p1);
+  remove_player_from_game(g1, p1);
+  add_player_to_game(g0, p1);
 
   s->stats.swaps++;
 

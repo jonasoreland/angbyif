@@ -1037,7 +1037,7 @@ create_base_sched3()
 
   compute_stats(s);
 
-#if 1
+#if 0
   print_sched(s);
   exit(0);
 #endif
@@ -1163,6 +1163,9 @@ perm0(Sched * s)
       break;
     }
   }
+
+  if (g0 == NULL || g1 == NULL)
+    return false;
 
   // move p1 from g1 to g0...
   // find player p2 in g0 that will swap with p1
@@ -1294,7 +1297,7 @@ main(int argc, char** argv)
       break;
     case 2:
     case 3:
-      s2 = create_base_sched2();
+      s2 = create_base_sched3();
       break;
     case 4:
       s2 = create_base_sched();

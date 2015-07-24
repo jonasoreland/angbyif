@@ -228,7 +228,11 @@ sort_by_name(const Player * p1, const Player * p2)
 bool
 sort_games_by_available(const Game *g1, const Game *g2)
 {
-  return g1->count_available() < g2->count_available();
+  int c1 = g1->count_available();
+  int c2 = g2->count_available();
+  if (c1 == c2)
+    return g1->count_players < g2->count_players;
+  return c1 < c2;
 }
 
 void strip(char * d)
@@ -953,6 +957,22 @@ create_base_sched2()
   return s;
 }
 
+struct sched_player
+{
+  Sched * s;
+  Player * p;
+};
+
+bool
+sort_players_by_score(const sched_player p1, const sched_player p2)
+{
+  int c1 = p1.p->lost_games + p1.s->stats.games_per_player[p1.p->index];
+  int c2 = p2.p->lost_games + p2.s->stats.games_per_player[p2.p->index];
+  if (c1 != c2)
+    return c1 < c2;
+  return sort_by_score(p1.p, p2.p);
+}
+
 /**
  * 1) Find game with least available players (and not full)
  * 2) Pick available players
@@ -965,41 +985,59 @@ create_base_sched2()
 Sched*
 create_base_sched3()
 {
+  std::default_random_engine generator;
+  generator.seed(time(0));
   Sched * s = copy_sched(&empty_sched);
-
-  vector<Game*> & games = s->games;
 
   int cnt_players = 0;
   vector<Player*> players;
   for (Player * p : ::players) {
-    players.push_back(p);
+    if (p->count_as > 0)
+      players.push_back(p);
     cnt_players += p->count_as;
   }
+
+  vector<Game*> games = s->games;
 
   size_t total = games.size() * players_per_game;
   int games_per_player = total / cnt_players;
 
-  for (Player * p : players) {
-    while (s->stats.games_per_player[p->index] + p->lost_games < games_per_player) {
-      Game * g = get_game(s, p);
-      if (g == NULL)
-        break;
-      add_player_to_game(g, p);
-    }
-  }
+  while (games.size()) {
+    std::sort(games.begin(), games.end(), sort_games_by_available);
+    Game * g = games[0];
 
-  for (Game * g : games) {
-    while (g->count_players < players_per_game) {
-      Player * p = get_player(s, players, g);
-      if (p == NULL)
-        break;
-      add_player_to_game(g, p);
+    vector<sched_player> possible;
+    for (Player * p : players) {
+      if (test_bit(g->unavailable_mask, p->index))
+        continue;
+      if (test_bit(s->players_mask_per_round[g->round], p->index))
+        continue;
+      sched_player sp = { s, p };
+      possible.push_back(sp);
     }
+    assert(possible.size() > 0);
+    sort(possible.begin(), possible.end(), sort_players_by_score);
+
+    std::normal_distribution<double> distribution(0, possible.size() / 2);
+    do
+    {
+      int val = distribution(generator);
+      if (val < 0)
+        val = -val;
+      if (val >= possible.size())
+        continue;
+
+      Player * p = possible[val].p;
+      add_player_to_game(g, p);
+    } while (0);
+
+    if (g->count_players >= players_per_game)
+      games.erase(games.begin());
   }
 
   compute_stats(s);
 
-#if 0
+#if 1
   print_sched(s);
   exit(0);
 #endif
@@ -1235,7 +1273,7 @@ main(int argc, char** argv)
   signal(SIGINT, sigterm);
   signal(SIGTERM, sigterm);
 
-  Sched * base = create_base_sched2();
+  Sched * base = create_base_sched3();
   Sched * s = copy_sched(base);
   compute_stats(s);
   int chars = 0;

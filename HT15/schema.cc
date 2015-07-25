@@ -28,6 +28,9 @@ const int rounds_per_team = 2;
 const char * games_filename = "matcher.csv";
 const char * players_filename = "spelare.csv";
 
+const int cmp_min_ledare = 2;
+const int cmp_games_diff = 2;
+
 static inline
 bool
 test_bit(mask_t mask, int bit) {
@@ -1077,25 +1080,27 @@ compare(const Sched * s1, const Sched * s2) {
     return -1;
   }
 
-  if (s1->stats.max_games < games_per_player + 2
-      && s2->stats.max_games >= games_per_player + 2)
+  if (s1->stats.max_games < games_per_player + cmp_games_diff
+      && s2->stats.max_games >= games_per_player + cmp_games_diff)
   {
     return +1;
   }
 
-  if (s1->stats.max_games >= games_per_player + 2
-      && s2->stats.max_games < games_per_player + 2)
+  if (s1->stats.max_games >= games_per_player + cmp_games_diff
+      && s2->stats.max_games < games_per_player + cmp_games_diff)
   {
     return -1;
   }
 
-  if (s1->stats.min_ledare < 2 && s2->stats.min_ledare >= 2) {
+  if (s1->stats.min_ledare < cmp_min_ledare &&
+      s2->stats.min_ledare >= cmp_min_ledare) {
     if (PRINT_COMPARE)
       fprintf(stderr, "%u return +1\n", __LINE__);
     return +1;
   }
 
-  if (s1->stats.min_ledare >= 2 && s2->stats.min_ledare < 2) {
+  if (s1->stats.min_ledare >= cmp_min_ledare &&
+      s2->stats.min_ledare < cmp_min_ledare) {
     if (PRINT_COMPARE)
       fprintf(stderr, "%u return +1\n", __LINE__);
     return -1;

@@ -336,8 +336,8 @@ read_players(const char * filename)
     p->count_as = c ? atoi(c) : 1;
     p->lost_games = lost_count ? atoi(lost_count) : 0;
 
-    //TODO handle count_as == 0
-    if (p->count_as)
+    //TODO handle score == 0
+    if (p->score)
     {
       players.push_back(p);
       player_count += p->count_as;
@@ -1077,13 +1077,12 @@ pct(int val1, int val2)
 }
 
 int
-compare(const Sched * s1, const Sched * s2) {
+compare(const Sched * s1, const Sched * s2, bool PRINT_COMPARE) {
   int res;
 
 #define S1_WIN -1
 #define S2_WIN 1
 
-#define PRINT_COMPARE 0
   if (s1->stats.min_games >= games_per_player &&
       s2->stats.min_games < games_per_player)
   {
@@ -1093,6 +1092,8 @@ compare(const Sched * s1, const Sched * s2) {
   if (s1->stats.min_games < games_per_player &&
       s2->stats.min_games >= games_per_player)
   {
+    if (PRINT_COMPARE)
+      fprintf(stderr, "\n%u min_games => %u\n", __LINE__, s2->stats.min_games);
     return S2_WIN;
   }
 
@@ -1105,63 +1106,77 @@ compare(const Sched * s1, const Sched * s2) {
   if (s1->stats.max_games >= games_per_player + cmp_games_diff &&
       s2->stats.max_games < games_per_player + cmp_games_diff)
   {
+    if (PRINT_COMPARE)
+      fprintf(stderr, "\n%u max_games => %u\n", __LINE__, s2->stats.max_games);
     return S2_WIN;
   }
 
   if (s1->stats.min_ledare < cmp_min_ledare &&
       s2->stats.min_ledare >= cmp_min_ledare) {
     if (PRINT_COMPARE)
-      fprintf(stderr, "%u return +1\n", __LINE__);
+      fprintf(stderr, "\n%u min_ledare => %u\n",
+              __LINE__, s2->stats.min_ledare);
     return S2_WIN;
   }
 
   if (s1->stats.min_ledare >= cmp_min_ledare &&
       s2->stats.min_ledare < cmp_min_ledare) {
-    if (PRINT_COMPARE)
-      fprintf(stderr, "%u return +1\n", __LINE__);
     return S1_WIN;
   }
 
-  if (s1->stats.min_together[0] == 0 && s2->stats.min_together[0] > 0) {
+  if (s1->stats.cnt_goalkeeper > s2->stats.cnt_goalkeeper)
+    return S1_WIN;
+
+  if (s1->stats.cnt_goalkeeper < s2->stats.cnt_goalkeeper)
+  {
+    if (PRINT_COMPARE)
+      fprintf(stderr, "\n%u cnt_goalkeeper => %u\n",
+              __LINE__, s2->stats.cnt_goalkeeper);
     return S2_WIN;
   }
 
-  if (s1->stats.min_together[0] > 0 && s2->stats.min_together[0] == 0)
-    return S1_WIN;
-
-  if (s1->stats.cnt_goalkeeper > s2->stats.cnt_goalkeeper)
-    return -1;
-
-  if (s2->stats.cnt_goalkeeper < s2->stats.cnt_goalkeeper)
-    return +1;
-
-  int not_together = abs(s1->stats.min_together[0] -
-                         s2->stats.min_together[0]);
-  if (not_together > 5)
-    return s2->stats.min_together[0] - s1->stats.min_together[0];
-
   int min_pct = pct(s1->stats.min_score, s2->stats.min_score);
   if (abs(min_pct) > 5)
+  {
+    if (s2->stats.min_score > s1->stats.min_score)
+      if (PRINT_COMPARE)
+        fprintf(stderr, "\n%u min_score => %u\n",
+                __LINE__, s2->stats.min_score);
     return s2->stats.min_score - s1->stats.min_score;
+  }
 
   int med_pct = pct(s1->stats.median_score, s2->stats.median_score);
   if (abs(med_pct) > 10)
+  {
+    if (s2->stats.median_score > s1->stats.median_score)
+      if (PRINT_COMPARE)
+        fprintf(stderr, "\n%u median_score => %u\n",
+                __LINE__, s2->stats.median_score);
     return s2->stats.median_score - s1->stats.median_score;
+  }
 
-  res = s1->stats.cnt_games_together[0] - s2->stats.cnt_games_together[0];
+  res = - (s2->stats.cnt_games_together[0] - s1->stats.cnt_games_together[0]);
 
-  if (abs(res) > 10) {
-    if (PRINT_COMPARE)
-      fprintf(stderr, "%u return %d\n", __LINE__, res);
+  if (abs(res) > 3) {
+    if (res > 0)
+      if (PRINT_COMPARE)
+        fprintf(stderr, "\n%u cnt_games_together[0] => %u\n",
+                __LINE__, s2->stats.cnt_games_together[0]);
     return res;
   }
 
   int max_pct = pct(s1->stats.max_score, s2->stats.max_score);
   if (abs(max_pct) > 10)
+  {
+    if (PRINT_COMPARE)
+      fprintf(stderr, "\n%u max_score => %u\n",
+              __LINE__, s2->stats.max_score);
     return s2->stats.max_score - s1->stats.max_score;
+  }
 
-  if (PRINT_COMPARE)
-    fprintf(stderr, "%u return %d\n", __LINE__, 0);
+  if (s2->stats.min_score >= s1->stats.min_score)
+    return ((rand() % 100) - 95);
+
   return 0;
 }
 
@@ -1330,7 +1345,7 @@ struct Global
 Sched * Global::promote(Sched * s2)
 {
   pthread_mutex_lock(&mutex);
-  int res = s ? compare(s, s2) : 1;
+  int res = s ? compare(s, s2, true) : 1;
 
   if (res < 0) {
     streak++;
@@ -1399,7 +1414,7 @@ void *thread_main(void * arg)
     }
     else
     {
-      int res = compare(s, s2);
+      int res = compare(s, s2, false);
       if (res < 0) {
         wins = 0;
         delete s2;
@@ -1427,9 +1442,9 @@ main(int argc, char** argv)
   signal(SIGTERM, sigterm);
 
   int threads = sysconf(_SC_NPROCESSORS_ONLN);
-  if (threads)
+  if (threads > 0)
     threads--;
-  if (threads == 0)
+  if (threads <= 1)
     thread_main(0);
   else
   {

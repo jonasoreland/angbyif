@@ -170,6 +170,7 @@ struct Stats
   vector<int> cnt_games_together; // [N] == #players that has N games together
 
   int min_games; // min games of a player
+  int max_games;
 
   int cnt_goalkeeper;
   int min_score;
@@ -535,6 +536,7 @@ compute_stats(Sched * s) {
       s->stats.cnt_games_together.push_back(0);
 
     s->stats.min_games = INT_MAX;
+    s->stats.max_games = 0;
     for (size_t n = 0; n < players.size() - 1; n++) {
       int min_together = INT_MAX;
       for (size_t m = n + 1; m < players.size(); m++) {
@@ -546,8 +548,15 @@ compute_stats(Sched * s) {
 	s->stats.min_together.push_back(min_together);
       }
 
-      if (s->stats.games_per_player[players[n]->index] < s->stats.min_games)
-        s->stats.min_games = s->stats.games_per_player[players[n]->index];
+      //TODO remove once player=0 has been fixed
+      if (s->stats.games_per_player[players[n]->index] > 0)
+      {
+        if (s->stats.games_per_player[players[n]->index] < s->stats.min_games)
+          s->stats.min_games = s->stats.games_per_player[players[n]->index];
+      }
+
+      if (s->stats.games_per_player[players[n]->index] > s->stats.max_games)
+        s->stats.max_games = s->stats.games_per_player[players[n]->index];
     }
   }
 
@@ -682,12 +691,14 @@ print_sched(const Sched * s)
 
   fprintf(stderr,
 	  "min_score: %d median_score: %d max_score: %d"
-          " min_ledare: %d cnt_goalkeeper: %d\n",
+          " min_ledare: %d cnt_goalkeeper: %d min/max games: %d/%d\n",
 	  s->stats.min_score,
 	  s->stats.median_score,
 	  s->stats.max_score,
 	  s->stats.min_ledare,
-          s->stats.cnt_goalkeeper);
+          s->stats.cnt_goalkeeper,
+          s->stats.min_games,
+          s->stats.max_games);
 
   fprintf(stderr,
           "swaps: %d failed: ",
@@ -1054,8 +1065,28 @@ compare(const Sched * s1, const Sched * s2) {
   int res;
 
 #define PRINT_COMPARE 0
-  if (s1->stats.min_games != s2->stats.min_games) {
-    return s2->stats.min_games - s1->stats.min_games;
+  if (s1->stats.min_games < games_per_player
+      && s2->stats.min_games >= games_per_player)
+  {
+    return +1;
+  }
+
+  if (s1->stats.min_games >= games_per_player
+      && s2->stats.min_games < games_per_player)
+  {
+    return -1;
+  }
+
+  if (s1->stats.max_games < games_per_player + 2
+      && s2->stats.max_games >= games_per_player + 2)
+  {
+    return +1;
+  }
+
+  if (s1->stats.max_games >= games_per_player + 2
+      && s2->stats.max_games < games_per_player + 2)
+  {
+    return -1;
   }
 
   if (s1->stats.min_ledare < 2 && s2->stats.min_ledare >= 2) {

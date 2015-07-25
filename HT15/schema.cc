@@ -13,7 +13,7 @@
 #define MAX_PLAYER 32
 typedef unsigned mask_t;
 
-bool stopnow = false;
+volatile bool stopnow = false;
 void sigterm(int) {
   stopnow = true;
 }
@@ -188,7 +188,7 @@ struct Stats
 struct Sched
 {
   Sched() {}
-  ~Sched() {}
+  ~Sched() { for (Game * g : games) { delete g; }}
 
   int count_players;
   vector<mask_t> players_mask_per_round;
@@ -333,8 +333,13 @@ read_players(const char * filename)
     p->goalkeeper = g ? atoi(g) : 0;
     p->count_as = c ? atoi(c) : 1;
     p->lost_games = lost_count ? atoi(lost_count) : 0;
-    players.push_back(p);
-    player_count += p->count_as;
+
+    //TODO handle count_as == 0
+    if (p->count_as)
+    {
+      players.push_back(p);
+      player_count += p->count_as;
+    }
 
     if (mask) {
       char *endptr;
@@ -428,8 +433,12 @@ create_empty_sched()
     }
   }
 
+  empty_sched.count_players = 0;
   for (size_t p = 0; p < players.size(); p++)
+  {
     empty_sched.stats.games_per_player.push_back(0);
+    empty_sched.count_players += players[p]->count_as;
+  }
 
   empty_sched.stats.games_together.init(players.size());
 }
@@ -507,6 +516,7 @@ Sched*
 copy_sched(const Sched * s)
 {
   Sched * ns = new Sched;
+  ns->count_players = s->count_players;
   ns->stats.games_together.init(players.size());
   for (size_t n = 0; n < players.size(); n++) {
     ns->stats.games_per_player.push_back(0);
@@ -551,12 +561,8 @@ compute_stats(Sched * s) {
 	s->stats.min_together.push_back(min_together);
       }
 
-      //TODO remove once player=0 has been fixed
-      if (s->stats.games_per_player[players[n]->index] > 0)
-      {
-        if (s->stats.games_per_player[players[n]->index] < s->stats.min_games)
-          s->stats.min_games = s->stats.games_per_player[players[n]->index];
-      }
+      if (s->stats.games_per_player[players[n]->index] < s->stats.min_games)
+        s->stats.min_games = s->stats.games_per_player[players[n]->index];
 
       if (s->stats.games_per_player[players[n]->index] > s->stats.max_games)
         s->stats.max_games = s->stats.games_per_player[players[n]->index];
@@ -1300,16 +1306,52 @@ permutate(Sched * s) {
   }
 }
 
-int
-main(int argc, char** argv)
+struct Global
 {
-  srand(time(0));
-  read_games(games_filename);
-  read_players(players_filename);
-  create_empty_sched();
-  signal(SIGINT, sigterm);
-  signal(SIGTERM, sigterm);
+  int streak;
+  int chars;
+  Sched * s;
 
+  Global() { streak = chars = 0; s = 0;}
+  Sched * promote(Sched * s2);
+} global;
+
+Sched * Global::promote(Sched * s2)
+{
+  int res = s ? compare(s, s2) : 1;
+
+  if (res < 0) {
+    streak++;
+    delete s2;
+  } else if (res == 0) {
+    streak++;
+    delete s2;
+  } else {
+    streak = 1;
+    delete s;
+    s = s2;
+  }
+
+  if (res > 0) {
+    chars++;
+    fputs("L", stderr);
+  } else {
+    chars++;
+    fputs("#", stderr);
+  }
+
+  if (chars == 79) {
+    fputs("\n", stderr);
+    chars = 0;
+  }
+
+  Sched * copy = copy_sched(s);
+  compute_stats(copy);
+  return copy;
+}
+
+void *thread_main(void *)
+{
   Sched * base = create_base_sched3();
   Sched * s = copy_sched(base);
   compute_stats(s);
@@ -1326,9 +1368,6 @@ main(int argc, char** argv)
       perm0(s2);
       break;
     case 1:
-      s2 = copy_sched(base);
-      perm0(s2);
-      break;
     case 2:
     case 3:
       s2 = create_base_sched3();
@@ -1349,29 +1388,23 @@ main(int argc, char** argv)
       wins = 0;
       streak = 1;
       delete s;
-      s = s2;
-    }
-
-    if (res > 0) {
-      chars++;
-      fputs("L", stderr);
-    } else if ((streak % 100) == 0) {
-      chars++;
-      fputs("#", stderr);
-    } else if ((loops % 100) == 0) {
-      chars++;
-      fputs(".", stderr);
-    }
-
-    if (chars == 79) {
-      fputs("\n", stderr);
-      chars = 0;
+      s = global.promote(s2);
     }
   }
-  fputs("\n", stderr);
-  fprintf(stderr, "streak: %d loops: %d\n", streak, loops);
+}
 
-  print_sched(s);
+int
+main(int argc, char** argv)
+{
+  srand(time(0));
+  read_games(games_filename);
+  read_players(players_filename);
+  create_empty_sched();
+  signal(SIGINT, sigterm);
+  signal(SIGTERM, sigterm);
+
+  thread_main(0);
+  print_sched(global.s);
 
   return 0;
 }

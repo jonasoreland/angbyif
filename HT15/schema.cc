@@ -3,6 +3,7 @@
 #include <string.h>
 #include <assert.h>
 #include <signal.h>
+#include <unistd.h>
 
 #include <vector>
 #include <algorithm>
@@ -179,6 +180,7 @@ struct Stats
   int min_score;
   int median_score;
   int max_score;
+  int std_score;
   int min_ledare;
 
   int swaps;
@@ -550,7 +552,7 @@ compute_stats(Sched * s) {
 
     s->stats.min_games = INT_MAX;
     s->stats.max_games = 0;
-    for (size_t n = 0; n < players.size() - 1; n++) {
+    for (size_t n = 0; n < players.size(); n++) {
       int min_together = INT_MAX;
       for (size_t m = n + 1; m < players.size(); m++) {
 	int val = s->stats.games_together.at(n,m);
@@ -574,21 +576,27 @@ compute_stats(Sched * s) {
   int max_score = 0;
   int min_ledare = INT_MAX;
   vector<int> scores;
+  double sum_score = 0;
+  double sum_score2 = 0;
   for (Game * g : s->games) {
-    scores.push_back(g->get_score());
-    if (g->get_score() < min_score)
-      min_score = g->get_score();
-    if (g->get_score() > max_score)
-      max_score = g->get_score();
+    int score = g->get_score();
+    scores.push_back(score);
+    if (score < min_score)
+      min_score = score;
+    if (score > max_score)
+      max_score = score;
     if (g->ledare < min_ledare)
       min_ledare = g->ledare;
     if (g->goalkeeper > 0)
       cnt_goalkeeper++;
+    sum_score += score;
+    sum_score2 += (score * score);
   }
   std::sort(scores.begin(), scores.end());
   s->stats.min_score = min_score;
   s->stats.median_score = scores[scores.size() / 2];
   s->stats.max_score = max_score;
+  s->stats.std_score = sqrt(sum_score*sum_score - sum_score2)/scores.size();
   s->stats.min_ledare = min_ledare;
   s->stats.cnt_goalkeeper = cnt_goalkeeper;
 }
@@ -699,11 +707,12 @@ print_sched(const Sched * s)
   fprintf(stderr, "\n");
 
   fprintf(stderr,
-	  "min_score: %d median_score: %d max_score: %d"
+	  "min/median/max/stddev score: %d/%d/%d/%d"
           " min_ledare: %d cnt_goalkeeper: %d min/max games: %d/%d\n",
 	  s->stats.min_score,
 	  s->stats.median_score,
 	  s->stats.max_score,
+          s->stats.std_score,
 	  s->stats.min_ledare,
           s->stats.cnt_goalkeeper,
           s->stats.min_games,
@@ -1004,10 +1013,8 @@ sort_players_by_score(const sched_player p1, const sched_player p2)
  * 5) Add players=0 players
  */
 Sched*
-create_base_sched3()
+create_base_sched3(std::default_random_engine& generator)
 {
-  std::default_random_engine generator;
-  generator.seed(time(0));
   Sched * s = copy_sched(&empty_sched);
 
   int cnt_players = 0;
@@ -1073,51 +1080,54 @@ int
 compare(const Sched * s1, const Sched * s2) {
   int res;
 
+#define S1_WIN -1
+#define S2_WIN 1
+
 #define PRINT_COMPARE 0
-  if (s1->stats.min_games < games_per_player
-      && s2->stats.min_games >= games_per_player)
+  if (s1->stats.min_games >= games_per_player &&
+      s2->stats.min_games < games_per_player)
   {
-    return +1;
+    return S1_WIN;
   }
 
-  if (s1->stats.min_games >= games_per_player
-      && s2->stats.min_games < games_per_player)
+  if (s1->stats.min_games < games_per_player &&
+      s2->stats.min_games >= games_per_player)
   {
-    return -1;
+    return S2_WIN;
   }
 
-  if (s1->stats.max_games < games_per_player + cmp_games_diff
-      && s2->stats.max_games >= games_per_player + cmp_games_diff)
+  if (s1->stats.max_games < games_per_player + cmp_games_diff &&
+      s2->stats.max_games >= games_per_player + cmp_games_diff)
   {
-    return +1;
+    return S1_WIN;
   }
 
-  if (s1->stats.max_games >= games_per_player + cmp_games_diff
-      && s2->stats.max_games < games_per_player + cmp_games_diff)
+  if (s1->stats.max_games >= games_per_player + cmp_games_diff &&
+      s2->stats.max_games < games_per_player + cmp_games_diff)
   {
-    return -1;
+    return S2_WIN;
   }
 
   if (s1->stats.min_ledare < cmp_min_ledare &&
       s2->stats.min_ledare >= cmp_min_ledare) {
     if (PRINT_COMPARE)
       fprintf(stderr, "%u return +1\n", __LINE__);
-    return +1;
+    return S2_WIN;
   }
 
   if (s1->stats.min_ledare >= cmp_min_ledare &&
       s2->stats.min_ledare < cmp_min_ledare) {
     if (PRINT_COMPARE)
       fprintf(stderr, "%u return +1\n", __LINE__);
-    return -1;
+    return S1_WIN;
   }
 
   if (s1->stats.min_together[0] == 0 && s2->stats.min_together[0] > 0) {
-    return +1;
+    return S2_WIN;
   }
 
   if (s1->stats.min_together[0] > 0 && s2->stats.min_together[0] == 0)
-    return -1;
+    return S1_WIN;
 
   if (s1->stats.cnt_goalkeeper > s2->stats.cnt_goalkeeper)
     return -1;
@@ -1131,7 +1141,7 @@ compare(const Sched * s1, const Sched * s2) {
     return s2->stats.min_together[0] - s1->stats.min_together[0];
 
   int min_pct = pct(s1->stats.min_score, s2->stats.min_score);
-  if (abs(min_pct) > 10)
+  if (abs(min_pct) > 5)
     return s2->stats.min_score - s1->stats.min_score;
 
   int med_pct = pct(s1->stats.median_score, s2->stats.median_score);
@@ -1311,13 +1321,15 @@ struct Global
   int streak;
   int chars;
   Sched * s;
+  pthread_mutex_t mutex;
 
-  Global() { streak = chars = 0; s = 0;}
+  Global() { mutex = PTHREAD_MUTEX_INITIALIZER; streak = chars = 0; s = 0;}
   Sched * promote(Sched * s2);
 } global;
 
 Sched * Global::promote(Sched * s2)
 {
+  pthread_mutex_lock(&mutex);
   int res = s ? compare(s, s2) : 1;
 
   if (res < 0) {
@@ -1347,12 +1359,15 @@ Sched * Global::promote(Sched * s2)
 
   Sched * copy = copy_sched(s);
   compute_stats(copy);
+  pthread_mutex_unlock(&mutex);
   return copy;
 }
 
-void *thread_main(void *)
+void *thread_main(void * arg)
 {
-  Sched * base = create_base_sched3();
+  std::default_random_engine generator;
+  generator.seed(time(0) + (long long)arg);
+  Sched * base = create_base_sched3(generator);
   Sched * s = copy_sched(base);
   compute_stats(s);
   int chars = 0;
@@ -1370,25 +1385,33 @@ void *thread_main(void *)
     case 1:
     case 2:
     case 3:
-      s2 = create_base_sched3();
+      s2 = create_base_sched3(generator);
       break;
     case 4:
       s2 = create_base_sched();
       break;
     }
     compute_stats(s2);
-    int res = compare(s, s2);
-    if (res < 0) {
-      wins = 0;
-      delete s2;
-    } else if (res == 0) {
-      wins++;
-      delete s2;
-    } else {
-      wins = 0;
-      streak = 1;
+    if ((loops % 200) == 0)
+    {
       delete s;
       s = global.promote(s2);
+    }
+    else
+    {
+      int res = compare(s, s2);
+      if (res < 0) {
+        wins = 0;
+        delete s2;
+      } else if (res == 0) {
+        wins++;
+        delete s2;
+      } else {
+        wins = 0;
+        streak = 1;
+        delete s;
+        s = global.promote(s2);
+      }
     }
   }
 }
@@ -1403,7 +1426,26 @@ main(int argc, char** argv)
   signal(SIGINT, sigterm);
   signal(SIGTERM, sigterm);
 
-  thread_main(0);
+  int threads = sysconf(_SC_NPROCESSORS_ONLN);
+  if (threads)
+    threads--;
+  if (threads == 0)
+    thread_main(0);
+  else
+  {
+    vector<pthread_t> rep;
+    for (int i = 0; i < threads; i++)
+    {
+      pthread_t thread;
+      pthread_create(&thread, NULL, thread_main, (void*)(long long)i);
+      rep.push_back(thread);
+    }
+    for (int i = 0; i < threads; i++)
+    {
+      void *val;
+      pthread_join(rep[i], &val);
+    }
+  }
   print_sched(global.s);
 
   return 0;

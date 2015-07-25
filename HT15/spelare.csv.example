@@ -1,0 +1,21 @@
+# rank, namn, ledare,goalie,count;masked games;games "played"
+200,Allan,1,0;;
+# Lenny, Tommy and Jimmy have games "played",
+# this means that they will *likely* get fewer games assigned
+150,Lenny,0,0;;1
+150,Tommy,1,0;;2
+100,Jimmy,0,0;;2
+50,Benny,1,0;;
+50,Ronny,0,0;;
+# Conny and Jonny can't play game no 2 (count starts from 0)
+40,Conny,0,0;2;
+30,Jonny,1,1;2;
+# players with count = 2 are such that they should always play together
+# i.e twins
+30,Leif/Gunnar,0,0,2;2;
+# players with count = 0 are added to games last
+# assumption is that they rarely show up for games
+# they are assigned to play...
+0,Willy,1,0,0;2;
+0,Wille,0,0,0;2;
+0,Walle,0,0,0;2;

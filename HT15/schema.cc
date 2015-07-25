@@ -22,6 +22,7 @@ using std::vector;
 
 int max_round = 0;
 int player_count = 0;
+int games_per_player = 0;
 const int players_per_game = 7;
 const int rounds_per_team = 2;
 const char * games_filename = "matcher.csv";
@@ -356,6 +357,9 @@ read_players(const char * filename)
       set_bit(file_games[m]->unavailable_mask, p->index);
     }
   }
+
+  size_t total = file_games.size() * players_per_game;
+  games_per_player = total / player_count;
 }
 
 void
@@ -726,9 +730,6 @@ create_base_sched()
     cnt_players += p->count_as;
   }
 
-  size_t total = games.size() * players_per_game;
-  int games_per_player = total / cnt_players;
-
   for (Player * p : players) {
     while (s->stats.games_per_player[p->index] + p->lost_games < games_per_player) {
       Game * g = get_game(s, p);
@@ -917,7 +918,7 @@ create_base_sched2()
   }
 
   size_t total = file_games.size() * players_per_game;
-  int min_games_per_player = total / player_count;
+  int min_games_per_player = games_per_player;
 
   for (int pi = 0; too_many_players(s->games, players_per_game); pi++) {
     Player * p = players[fun(pi, players.size())];
@@ -998,9 +999,6 @@ create_base_sched3()
   }
 
   vector<Game*> games = s->games;
-
-  size_t total = games.size() * players_per_game;
-  int games_per_player = total / cnt_players;
 
   while (games.size()) {
     std::sort(games.begin(), games.end(), sort_games_by_available);

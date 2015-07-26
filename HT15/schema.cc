@@ -1196,7 +1196,7 @@ compare(const Sched * s1, const Sched * s2, bool PRINT_COMPARE) {
   }
 
   int min_pct = pct(s1->stats.min_score, s2->stats.min_score);
-  if (abs(min_pct) > 5)
+  if (abs(min_pct) > 3)
   {
     if (s2->stats.min_score > s1->stats.min_score)
     {
@@ -1227,7 +1227,7 @@ compare(const Sched * s1, const Sched * s2, bool PRINT_COMPARE) {
 
   res = - (s2->stats.cnt_games_together[0] - s1->stats.cnt_games_together[0]);
 
-  if (abs(res) > 3) {
+  if (abs(res) > 5) {
     if (res > 0)
     {
       if (PRINT_COMPARE)

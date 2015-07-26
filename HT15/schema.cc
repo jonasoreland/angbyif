@@ -218,6 +218,14 @@ sort_by_score(const Player * p1, const Player * p2)
 }
 
 bool
+sort_games_by_players_score(const Game * p1, const Game * p2)
+{
+  if (p1->count_players != p2->count_players)
+    return p1->count_players < p2->count_players;
+  return p1->get_score() > p2->get_score();
+}
+
+bool
 sort_by_ledare(const Player * p1, const Player * p2)
 {
   if (p1->ledare == p2->ledare)
@@ -336,12 +344,12 @@ read_players(const char * filename)
     p->count_as = c ? atoi(c) : 1;
     p->lost_games = lost_count ? atoi(lost_count) : 0;
 
-    //TODO handle score == 0
-    if (p->score)
+    //TODO handle count_as < 0
+    if (p->count_as > 0)
     {
-      players.push_back(p);
       player_count += p->count_as;
     }
+    players.push_back(p);
 
     if (mask) {
       char *endptr;
@@ -439,7 +447,7 @@ create_empty_sched()
   for (size_t p = 0; p < players.size(); p++)
   {
     empty_sched.stats.games_per_player.push_back(0);
-    empty_sched.count_players += players[p]->count_as;
+    empty_sched.count_players += abs(players[p]->count_as);
   }
 
   empty_sched.stats.games_together.init(players.size());
@@ -469,7 +477,7 @@ add_player_to_game(Game * g, Player * p)
   g->score += p->score;
   g->ledare += !!p->ledare;
   g->goalkeeper += p->goalkeeper;
-  g->count_players += p->count_as;
+  g->count_players += abs(p->count_as);
   g->players.push_back(p);
   if (test_bit(g->players_mask, p->index)) {
     printf("assert g->players_mask %s to %s\n", p->name, g->desc);
@@ -498,7 +506,7 @@ remove_player_from_game(Game * g, Player * p)
   g->score -= p->score;
   g->ledare -= !!p->ledare;
   g->goalkeeper -= p->goalkeeper;
-  g->count_players -= p->count_as;
+  g->count_players -= abs(p->count_as);
   g->players.erase(find(g->players.begin(), g->players.end(), p));
   assert(test_bit(g->players_mask, p->index));
   assert(!test_bit(g->unavailable_mask, p->index));
@@ -756,7 +764,7 @@ create_base_sched()
   vector<Player*> players;
   for (Player * p : ::players) {
     players.push_back(p);
-    cnt_players += p->count_as;
+    cnt_players += abs(p->count_as);
   }
 
   for (Player * p : players) {
@@ -1003,6 +1011,12 @@ sort_players_by_score(const sched_player p1, const sched_player p2)
   return sort_by_score(p1.p, p2.p);
 }
 
+bool
+sort_by_low_score(const Player * p1, const Player * p2)
+{
+  return !sort_by_score(p1, p2);
+}
+
 /**
  * 1) Find game with least available players (and not full)
  * 2) Pick available players
@@ -1017,12 +1031,10 @@ create_base_sched3(std::default_random_engine& generator)
 {
   Sched * s = copy_sched(&empty_sched);
 
-  int cnt_players = 0;
   vector<Player*> players;
   for (Player * p : ::players) {
     if (p->count_as > 0)
       players.push_back(p);
-    cnt_players += p->count_as;
   }
 
   vector<Game*> games = s->games;
@@ -1040,7 +1052,12 @@ create_base_sched3(std::default_random_engine& generator)
       sched_player sp = { s, p };
       possible.push_back(sp);
     }
-    assert(possible.size() > 0);
+
+    if (possible.size() == 0)
+    {
+      games.erase(games.begin());
+      continue;
+    }
     sort(possible.begin(), possible.end(), sort_players_by_score);
 
     std::normal_distribution<double> distribution(0, possible.size() / 2);
@@ -1058,6 +1075,31 @@ create_base_sched3(std::default_random_engine& generator)
 
     if (g->count_players >= players_per_game)
       games.erase(games.begin());
+  }
+
+  players.clear();
+  for (Player * p : ::players) {
+    if (p->count_as < 0)
+      players.push_back(p);
+  }
+
+  games = s->games;
+  std::sort(players.begin(), players.end(), sort_by_low_score);
+  for (int i = 0; i < games_per_player; i++)
+  {
+    for (Player * p : players)
+    {
+      std::sort(games.begin(), games.end(), sort_games_by_players_score);
+      for (int i = 0; i < games.size(); i++)
+      {
+        if (test_bit(games[i]->unavailable_mask, p->index))
+          continue;
+        if (test_bit(s->players_mask_per_round[games[i]->round], p->index))
+          continue;
+        add_player_to_game(games[i], p);
+        break;
+      }
+    }
   }
 
   compute_stats(s);
@@ -1183,11 +1225,13 @@ compare(const Sched * s1, const Sched * s2, bool PRINT_COMPARE) {
 // Find 2 player that never play together
 // move 1 of them so that they do play one game together
 bool
-perm0(Sched * s)
+perm0(Sched * s, std::default_random_engine &generator)
 {
   mask_t candidates = 0;
   for (size_t n = 0; n < players.size(); n++) {
     for (size_t m = n + 1; m < players.size(); m++) {
+      if (players[n]->count_as != players[m]->count_as)
+        continue;
       if (s->stats.games_together.at(n,m) == 0) {
 	set_bit(candidates, n);
 	set_bit(candidates, m);
@@ -1203,12 +1247,15 @@ perm0(Sched * s)
   for (size_t m = 0; m < players.size(); m++) {
     if (m == (unsigned)p0->index)
       continue;
+    if (p0->count_as != players[m]->count_as)
+      continue;
     if (s->stats.games_together.at(m, p0->index) == 0) {
       set_bit(candidates, m);
     }
   }
 
-  size_t g0n = rand() % s->games.size();
+  std::uniform_int_distribution<int> dist0(0,s->games.size()-1);
+  size_t g0n = dist0(generator);
   Game * g0 = 0;
   for (size_t i = 0; i < s->games.size(); i++) {
     Game * g = s->games[(g0n + i) % s->games.size()];
@@ -1220,7 +1267,7 @@ perm0(Sched * s)
 
   Player * p1 = players[rand_bit(candidates)];
   Game * g1 = 0;
-  size_t g1n = rand() % s->games.size();
+  size_t g1n = dist0(generator);
   for (size_t i = 0; i < s->games.size(); i++) {
     Game * g = s->games[(g1n + i) % s->games.size()];
     if (test_bit(g->players_mask, p1->index)) {
@@ -1242,9 +1289,6 @@ perm0(Sched * s)
 
 #define PRINT_SWAP 0
   if (candidates == 0) {
-    if (PRINT_SWAP)
-      fprintf(stderr, "dont swap %s:%s and %s:%s\n",
-	      p0->name, g0->desc, p1->name, g1->desc);
     s->stats.failed_swap[0]++;
     return true;
   }
@@ -1252,47 +1296,24 @@ perm0(Sched * s)
   unsigned cnt = 0;
   Player * swap[MAX_PLAYER];
   for (size_t i = 0; i < MAX_PLAYER; i++) {
-    if (test_bit(candidates, i))
-      if (players[i]->count_as <= p1->count_as)
-        if (!test_bit(g1->unavailable_mask, players[i]->index))
-          swap[cnt++] = players[i];
-  }
-
-  int count = p1->count_as;
-
-  if (cnt < (unsigned)count) {
-    s->stats.failed_swap[1]++;
-    return true;
-  }
-
-  int found = 0;
-  Player * p2[MAX_PLAYER] = { 0 };
-  std::default_random_engine generator;
-  std::normal_distribution<double> distribution(0, 50);
-
-  do {
-    int dist = distribution(generator);
-    if (dist < 0)
-      continue;
-    size_t pos = rand() % cnt;
-    for (size_t n = 0; n < cnt; n++) {
-      size_t i = (n + pos) % cnt;
-      Player * p = swap[i];
-      if (p == NULL)
+    if (test_bit(candidates, i)) {
+      if (players[i]->count_as != p1->count_as)
         continue;
-      if (abs(p->score - p1->score) <= dist) {
-	p2[found++] = p;
-        swap[i] = NULL;
-	break;
-      }
+      if (test_bit(g1->unavailable_mask, players[i]->index))
+        continue;
+      swap[cnt++] = players[i];
     }
-  } while (found < count);
+  }
 
-  for (int i = 0; i < found; i++) {
-    if (test_bit(s->players_mask_per_round[g1->round], p2[i]->index)) {
-      s->stats.failed_swap[2]++;
-      return true;
-    }
+  if (cnt == 0)
+    return true;
+
+  std::uniform_int_distribution<int> dist1(0,cnt-1);
+  p0 = swap[dist1(generator)];
+
+  if (test_bit(s->players_mask_per_round[g1->round], p0->index)) {
+    s->stats.failed_swap[2]++;
+    return true;
   }
 
   if (test_bit(s->players_mask_per_round[g0->round], p1->index)) {
@@ -1306,13 +1327,12 @@ perm0(Sched * s)
   }
 
   if (PRINT_SWAP)
-    fprintf(stderr, "swap %s:%s and %s:%s\n",
-	    p2[0]->name, g0->desc, p1->name, g1->desc);
+    fprintf(stderr, "swap %s(%d):%s and %s(%d):%s\n",
+	    p0->name, p0->count_as, g0->desc,
+            p1->name, p1->count_as, g1->desc);
 
-  for (int i = 0; i < found; i++) {
-    remove_player_from_game(g0, p2[i]);
-    add_player_to_game(g1, p2[i]);
-  }
+  remove_player_from_game(g0, p0);
+  add_player_to_game(g1, p0);
 
   remove_player_from_game(g1, p1);
   add_player_to_game(g0, p1);
@@ -1323,10 +1343,10 @@ perm0(Sched * s)
 }
 
 void
-permutate(Sched * s) {
+permutate(Sched * s, std::default_random_engine &generator) {
 
   for (int i = 0; i < 100; i++) {
-    if (!perm0(s))
+    if (!perm0(s, generator))
       break;
   }
 }
@@ -1395,8 +1415,9 @@ void *thread_main(void * arg)
     switch(streak % 4) {
     case 0:
       s2 = copy_sched(s);
-      perm0(s2);
+      permutate(s2, generator);
       break;
+    default:
     case 1:
     case 2:
     case 3:

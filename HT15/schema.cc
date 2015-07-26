@@ -658,6 +658,38 @@ get_player(const Sched * s, const vector<Player*> players, Game * g)
 }
 
 void
+print_stats(const Sched * s)
+{
+  fprintf(stderr, "cnt: ");
+  for (size_t n = 0; n < s->stats.cnt_games_together.size(); n++) {
+    fprintf(stderr, "%ld-%d, ", n,  s->stats.cnt_games_together[n]);
+  }
+  fprintf(stderr, "\n");
+
+  fprintf(stderr,
+	  "min/median/max/stddev score: %d/%d/%d/%d"
+          " min_ledare: %d cnt_goalkeeper: %d min/max games: %d/%d\n",
+	  s->stats.min_score,
+	  s->stats.median_score,
+	  s->stats.max_score,
+          s->stats.std_score,
+	  s->stats.min_ledare,
+          s->stats.cnt_goalkeeper,
+          s->stats.min_games,
+          s->stats.max_games);
+
+  fprintf(stderr,
+          "swaps: %d failed: ",
+          s->stats.swaps);
+  for (int i : s->stats.failed_swap) {
+    fprintf(stderr,
+            "%d ",
+            i);
+  }
+  fprintf(stderr, "\n");
+}
+
+void
 print_sched(const Sched * s)
 {
   for (Game * g : s->games) {
@@ -708,33 +740,7 @@ print_sched(const Sched * s)
     }
   }
 
-  fprintf(stderr, "cnt: ");
-  for (size_t n = 0; n < s->stats.cnt_games_together.size(); n++) {
-    fprintf(stderr, "%ld-%d, ", n,  s->stats.cnt_games_together[n]);
-  }
-  fprintf(stderr, "\n");
-
-  fprintf(stderr,
-	  "min/median/max/stddev score: %d/%d/%d/%d"
-          " min_ledare: %d cnt_goalkeeper: %d min/max games: %d/%d\n",
-	  s->stats.min_score,
-	  s->stats.median_score,
-	  s->stats.max_score,
-          s->stats.std_score,
-	  s->stats.min_ledare,
-          s->stats.cnt_goalkeeper,
-          s->stats.min_games,
-          s->stats.max_games);
-
-  fprintf(stderr,
-          "swaps: %d failed: ",
-          s->stats.swaps);
-  for (int i : s->stats.failed_swap) {
-    fprintf(stderr,
-            "%d ",
-            i);
-  }
-  fprintf(stderr, "\n");
+  print_stats(s);
 
   for (Player * p : players) {
     fprintf(stderr, "%s : %d games(%d), ",
@@ -1135,7 +1141,10 @@ compare(const Sched * s1, const Sched * s2, bool PRINT_COMPARE) {
       s2->stats.min_games >= games_per_player)
   {
     if (PRINT_COMPARE)
+    {
       fprintf(stderr, "\n%u min_games => %u\n", __LINE__, s2->stats.min_games);
+      print_stats(s2);
+    }
     return S2_WIN;
   }
 
@@ -1149,15 +1158,21 @@ compare(const Sched * s1, const Sched * s2, bool PRINT_COMPARE) {
       s2->stats.max_games < games_per_player + cmp_games_diff)
   {
     if (PRINT_COMPARE)
+    {
       fprintf(stderr, "\n%u max_games => %u\n", __LINE__, s2->stats.max_games);
+      print_stats(s2);
+    }
     return S2_WIN;
   }
 
   if (s1->stats.min_ledare < cmp_min_ledare &&
       s2->stats.min_ledare >= cmp_min_ledare) {
     if (PRINT_COMPARE)
+    {
       fprintf(stderr, "\n%u min_ledare => %u\n",
               __LINE__, s2->stats.min_ledare);
+      print_stats(s2);
+    }
     return S2_WIN;
   }
 
@@ -1172,8 +1187,11 @@ compare(const Sched * s1, const Sched * s2, bool PRINT_COMPARE) {
   if (s1->stats.cnt_goalkeeper < s2->stats.cnt_goalkeeper)
   {
     if (PRINT_COMPARE)
+    {
       fprintf(stderr, "\n%u cnt_goalkeeper => %u\n",
               __LINE__, s2->stats.cnt_goalkeeper);
+      print_stats(s2);
+    }
     return S2_WIN;
   }
 
@@ -1181,9 +1199,14 @@ compare(const Sched * s1, const Sched * s2, bool PRINT_COMPARE) {
   if (abs(min_pct) > 5)
   {
     if (s2->stats.min_score > s1->stats.min_score)
+    {
       if (PRINT_COMPARE)
+      {
         fprintf(stderr, "\n%u min_score => %u\n",
                 __LINE__, s2->stats.min_score);
+        print_stats(s2);
+      }
+    }
     return s2->stats.min_score - s1->stats.min_score;
   }
 
@@ -1191,9 +1214,14 @@ compare(const Sched * s1, const Sched * s2, bool PRINT_COMPARE) {
   if (abs(med_pct) > 10)
   {
     if (s2->stats.median_score > s1->stats.median_score)
+    {
       if (PRINT_COMPARE)
+      {
         fprintf(stderr, "\n%u median_score => %u\n",
                 __LINE__, s2->stats.median_score);
+        print_stats(s2);
+      }
+    }
     return s2->stats.median_score - s1->stats.median_score;
   }
 
@@ -1201,9 +1229,14 @@ compare(const Sched * s1, const Sched * s2, bool PRINT_COMPARE) {
 
   if (abs(res) > 3) {
     if (res > 0)
+    {
       if (PRINT_COMPARE)
+      {
         fprintf(stderr, "\n%u cnt_games_together[0] => %u\n",
                 __LINE__, s2->stats.cnt_games_together[0]);
+        print_stats(s2);
+      }
+    }
     return res;
   }
 
@@ -1211,8 +1244,11 @@ compare(const Sched * s1, const Sched * s2, bool PRINT_COMPARE) {
   if (abs(max_pct) > 10)
   {
     if (PRINT_COMPARE)
+    {
       fprintf(stderr, "\n%u max_score => %u\n",
               __LINE__, s2->stats.max_score);
+      print_stats(s2);
+    }
     return s2->stats.max_score - s1->stats.max_score;
   }
 
